@@ -142,22 +142,24 @@ export const RoomScheduleManagement: React.FC<RoomScheduleManagementProps> = ({
       return;
     }
 
-    // Check if room name already exists
-    if (allRooms.some((r) => r.name.toLowerCase() === cleanName.toLowerCase())) {
-      alert(`Phòng "${cleanName}" đã tồn tại trong hệ thống! Vui lòng chọn tên phòng khác.`);
+    const cleanCampus = newRoomCampus.trim() || 'Cơ sở 1';
+    const cleanBuilding = newRoomBuilding.trim() || 'Khuôn viên trường';
+
+    const duplicateRoom = allRooms.some((r) =>
+      r.name.trim().toLowerCase() === cleanName.toLowerCase() &&
+      (r.campus || 'Cơ sở 1').trim().toLowerCase() === cleanCampus.toLowerCase() &&
+      (r.building || 'Khuôn viên trường').trim().toLowerCase() === cleanBuilding.toLowerCase()
+    );
+
+    if (duplicateRoom) {
+      alert('Phòng "' + cleanName + '" đã tồn tại tại ' + cleanCampus + ' - ' + cleanBuilding + '! Vui lòng chọn tên phòng khác.');
       return;
     }
 
     StorageService.addCampusRoom({
       name: cleanName,
-      campus: newRoomCampus.trim() || 'Cơ sở 1',
-      building: newRoomBuilding.trim() || 'Khuôn viên trường',
-      capacity: Number(newRoomCapacity) || 60,
-      type: newRoomType.trim() || 'Lý thuyết',
-      radiusMeters: Number(newRoomRadius) || 50,
-      latitude: Number(newRoomLatitude) || 21.038234,
-      longitude: Number(newRoomLongitude) || 105.782812,
-    });
+      campus: cleanCampus,
+      building: cleanBuilding,
 
     onRefreshData();
     setIsAddRoomModalOpen(false);
