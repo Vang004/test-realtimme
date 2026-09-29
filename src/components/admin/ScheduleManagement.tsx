@@ -109,6 +109,7 @@ export const ScheduleManagement: React.FC<ScheduleManagementProps> = ({
   const [className, setClassName] = useState('A1');
   const [lecturerId, setLecturerId] = useState('');
   const [locationName, setLocationName] = useState('Phòng Lab 302 - Giảng đường A2');
+  const [roomId, setRoomId] = useState('');
   const [latitude, setLatitude] = useState(21.038234);
   const [longitude, setLongitude] = useState(105.782812);
   const [radiusMeters, setRadiusMeters] = useState(50);
@@ -262,6 +263,7 @@ export const ScheduleManagement: React.FC<ScheduleManagementProps> = ({
     setClassName(cls.className);
     setLecturerId(cls.lecturerId);
     setLocationName(cls.locationName);
+    setRoomId(cls.roomId || campusRooms.find((r) => r.name === cls.locationName)?.id || '');
     setLatitude(cls.latitude);
     setLongitude(cls.longitude);
     setRadiusMeters(cls.radiusMeters);
@@ -368,7 +370,8 @@ export const ScheduleManagement: React.FC<ScheduleManagementProps> = ({
       Number(dayOfWeek),
       startTime,
       endTime,
-      editingClass?.id
+      editingClass?.id,
+      roomId || undefined
     );
     if (roomConflict.hasConflict) {
       alert(`⚠️ XUNG ĐỘT PHÒNG HỌC:\n\n${roomConflict.reason || `Phòng học "${locationName}" đã có lớp đăng ký trong khung giờ này!`}`);
@@ -387,6 +390,7 @@ export const ScheduleManagement: React.FC<ScheduleManagementProps> = ({
           className,
           lecturerId,
           locationName,
+          roomId: roomId || undefined,
           latitude: Number(latitude),
           longitude: Number(longitude),
           radiusMeters: Number(radiusMeters),
@@ -410,6 +414,7 @@ export const ScheduleManagement: React.FC<ScheduleManagementProps> = ({
           className,
           lecturerId,
           locationName,
+          roomId: roomId || undefined,
           latitude: Number(latitude),
           longitude: Number(longitude),
           radiusMeters: Number(radiusMeters),
@@ -929,8 +934,9 @@ export const ScheduleManagement: React.FC<ScheduleManagementProps> = ({
                     value={locationName}
                     onChange={(e) => {
                       const selected = e.target.value;
-                      setLocationName(selected);
-                      const roomObj = campusRooms.find((r) => r.name === selected);
+                      const roomObj = campusRooms.find((r) => r.id === selected);
+                      setRoomId(roomObj?.id || '');
+                      setLocationName(roomObj?.name || '');
                       if (roomObj) {
                         setLatitude(roomObj.latitude);
                         setLongitude(roomObj.longitude);
@@ -948,7 +954,7 @@ export const ScheduleManagement: React.FC<ScheduleManagementProps> = ({
                           <option value={locationName}>{locationName} (Phòng hiện tại)</option>
                         )}
                         {availableRooms.map((r) => (
-                          <option key={r.id} value={r.name}>
+                          <option key={r.id} value={r.id}>
                             [{r.campus || 'Cơ sở 1'}] {r.name} • Sức chứa: {r.capacity} SV ({r.building} - {r.type || 'Lý thuyết'})
                           </option>
                         ))}
