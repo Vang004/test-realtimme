@@ -37,6 +37,7 @@ export interface ClassRoom {
   
   // Geofence & Location configuration
   locationName: string;   // Ví dụ: Phòng A204 - Giảng đường B1
+  roomId?: string;        // ID phòng học cụ thể trong danh sách CampusRoom
   latitude: number;       // Vĩ độ
   longitude: number;      // Kinh độ
   radiusMeters: number;   // Bán kính cho phép điểm danh (10m, 20m, 50m, 100m,...)
