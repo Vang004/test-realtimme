@@ -1,0 +1,11 @@
+{
+  "name": "Remix Remix Web Real Time",
+  "description": "Hệ thống điểm danh và chấm công lớp học thông minh bằng định vị GPS, camera thời gian thực, kiểm soát ra vào và phân quyền đa cấp.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
