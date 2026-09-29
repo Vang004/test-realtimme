@@ -160,6 +160,12 @@ export const RoomScheduleManagement: React.FC<RoomScheduleManagementProps> = ({
       name: cleanName,
       campus: cleanCampus,
       building: cleanBuilding,
+      capacity: Number(newRoomCapacity) || 60,
+      type: newRoomType.trim() || 'Lý thuyết',
+      radiusMeters: Number(newRoomRadius) || 50,
+      latitude: Number(newRoomLatitude) || 21.038234,
+      longitude: Number(newRoomLongitude) || 105.782812,
+    });
 
     onRefreshData();
     setIsAddRoomModalOpen(false);
