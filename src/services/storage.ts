@@ -1944,7 +1944,8 @@ export const StorageService = {
     dayOfWeek: number,
     startTime: string,
     endTime: string,
-    currentClassId?: string
+    currentClassId?: string,
+    roomId?: string
   ): { hasConflict: boolean; conflictingClass?: ClassRoom; reason?: string } {
     const classes = this.getClasses();
     const cleanTargetName = (locationName || '').trim().toLowerCase();
@@ -1952,8 +1953,11 @@ export const StorageService = {
     for (const cls of classes) {
       if (currentClassId && cls.id === currentClassId) continue;
       
-      const cleanClsLoc = (cls.locationName || '').trim().toLowerCase();
-      if (cleanClsLoc === cleanTargetName) {
+      const sameRoom = roomId && cls.roomId
+        ? cls.roomId === roomId
+        : !roomId && !cls.roomId && (cls.locationName || '').trim().toLowerCase() === cleanTargetName;
+
+      if (sameRoom) {
         if (this.isTimeOverlapping(dayOfWeek, startTime, endTime, cls.dayOfWeek, cls.startTime, cls.endTime)) {
           const dayName = cls.dayOfWeek === 7 ? 'Chủ nhật' : `Thứ ${cls.dayOfWeek + 1}`;
           return {
@@ -1977,17 +1981,22 @@ export const StorageService = {
   ): CampusRoom[] {
     const allRooms = this.getCampusRooms();
     return allRooms.filter((room) => {
-      const conflict = this.checkRoomConflict(room.name, dayOfWeek, startTime, endTime, currentClassId);
+      const conflict = this.checkRoomConflict(room.name, dayOfWeek, startTime, endTime, currentClassId, room.id);
       return !conflict.hasConflict;
     });
   },
 
   // Get daily schedule for a room on a given dayOfWeek
-  getRoomDailySchedule(locationName: string, dayOfWeek: number): ClassRoom[] {
+  getRoomDailySchedule(locationName: string, dayOfWeek: number, roomId?: string): ClassRoom[] {
     const classes = this.getClasses();
     const cleanTarget = (locationName || '').trim().toLowerCase();
     return classes
-      .filter((c) => c.locationName.trim().toLowerCase() === cleanTarget && c.dayOfWeek === dayOfWeek)
+      .filter((c) =>
+        c.dayOfWeek === dayOfWeek &&
+        (roomId && c.roomId
+          ? c.roomId === roomId
+          : !roomId && !c.roomId && c.locationName.trim().toLowerCase() === cleanTarget)
+      )
       .sort((a, b) => a.startTime.localeCompare(b.startTime));
   },
 
