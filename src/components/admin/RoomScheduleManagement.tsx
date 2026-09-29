@@ -247,7 +247,9 @@ export const RoomScheduleManagement: React.FC<RoomScheduleManagementProps> = ({
         room.name,
         dayOfWeek,
         startTime,
-        endTime
+        endTime,
+        undefined,
+        room.id
       );
       const dailySchedule = StorageService.getRoomDailySchedule(room.name, dayOfWeek);
 
@@ -1027,7 +1029,7 @@ export const RoomScheduleManagement: React.FC<RoomScheduleManagementProps> = ({
 
             <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto text-xs">
               {(() => {
-                const daySchedule = StorageService.getRoomDailySchedule(detailRoom.name, dayOfWeek);
+                const daySchedule = StorageService.getRoomDailySchedule(detailRoom.name, dayOfWeek, detailRoom.id);
                 if (daySchedule.length === 0) {
                   return (
                     <div className="p-8 text-center text-slate-400 bg-slate-50 rounded-2xl">
