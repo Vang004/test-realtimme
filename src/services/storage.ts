@@ -1830,11 +1830,7 @@ export const StorageService = {
     }
 
     // Never expose intentionally deleted rooms.
-    rooms = rooms.filter(
-      (room) =>
-        !deletedRoomIdSet.has(room.id) &&
-        !deletedRoomNameSet.has(room.name.trim().toLowerCase())
-    );
+    rooms = rooms.filter((room) => !deletedRoomIdSet.has(room.id));
 
     // Include rooms referenced by active classes only when the room itself
     // has not been intentionally deleted.
@@ -1842,10 +1838,15 @@ export const StorageService = {
     let hasNewFromClasses = false;
     classes.forEach((cls) => {
       const cleanLocationName = (cls.locationName || '').trim().toLowerCase();
+      const hasRoomId = !!cls.roomId;
+      const referencedRoomExists = hasRoomId
+        ? rooms.some((r) => r.id === cls.roomId)
+        : rooms.some((r) => r.name.trim().toLowerCase() === cleanLocationName);
+
       if (
         cleanLocationName &&
-        !deletedRoomNameSet.has(cleanLocationName) &&
-        !rooms.some((r) => r.name.trim().toLowerCase() === cleanLocationName)
+        (!hasRoomId && !deletedRoomNameSet.has(cleanLocationName)) &&
+        !referencedRoomExists
       ) {
         rooms.push({
           id: `room_custom_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -2003,6 +2004,20 @@ export const StorageService = {
   // Add a new empty campus room for lecturers/admin to book
   addCampusRoom(room: Omit<CampusRoom, 'id'> & { id?: string }): CampusRoom {
     const rooms = this.getCampusRooms();
+    const cleanName = room.name.trim().toLowerCase();
+    const cleanCampus = (room.campus || 'Cơ sở 1').trim().toLowerCase();
+    const cleanBuilding = (room.building || 'Khuôn viên trường').trim().toLowerCase();
+
+    const duplicate = rooms.some(
+      (r) =>
+        r.name.trim().toLowerCase() === cleanName &&
+        (r.campus || 'Cơ sở 1').trim().toLowerCase() === cleanCampus &&
+        (r.building || 'Khuôn viên trường').trim().toLowerCase() === cleanBuilding
+    );
+    if (duplicate) {
+      throw new Error('Phòng học đã tồn tại tại cùng cơ sở và tòa nhà.');
+    }
+
     const newRoom: CampusRoom = {
       id: room.id || `room_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       name: room.name.trim(),
@@ -2024,6 +2039,20 @@ export const StorageService = {
     const rooms = this.getCampusRooms();
     const targetRoom = rooms.find((r) => r.id === id);
     if (!targetRoom) return { success: false };
+
+    const classes = this.getClasses();
+    const linkedClasses = classes.filter(
+      (cls) =>
+        (cls.roomId && cls.roomId === id) ||
+        (!cls.roomId &&
+          (cls.locationName || '').trim().toLowerCase() === targetRoom.name.trim().toLowerCase())
+    );
+    if (linkedClasses.length > 0) {
+      return {
+        success: false,
+        message: `Không thể xóa phòng "${targetRoom.name}" vì đang có ${linkedClasses.length} lớp học/ca dạy sử dụng phòng này. Hãy chuyển các lớp sang phòng khác trước.`,
+      };
+    }
 
     this.markCampusRoomDeleted(id, targetRoom.name);
     this.saveCampusRooms(rooms.filter((r) => r.id !== id));
@@ -2048,6 +2077,23 @@ export const StorageService = {
     const idSet = new Set(ids);
     const targets = rooms.filter((r) => idSet.has(r.id));
     if (targets.length === 0) return { successCount: 0, trashItems: [], previousRooms: [] };
+
+    const classes = this.getClasses();
+    const blockedTargets = targets.filter((room) =>
+      classes.some(
+        (cls) =>
+          (cls.roomId && cls.roomId === room.id) ||
+          (!cls.roomId &&
+            (cls.locationName || '').trim().toLowerCase() === room.name.trim().toLowerCase())
+      )
+    );
+    if (blockedTargets.length > 0) {
+      return {
+        successCount: 0,
+        trashItems: [],
+        previousRooms: [],
+      };
+    }
 
     targets.forEach((room) => this.markCampusRoomDeleted(room.id, room.name));
     rooms = rooms.filter((r) => !idSet.has(r.id));
