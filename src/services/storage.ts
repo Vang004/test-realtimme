@@ -11,6 +11,8 @@ const STORAGE_KEYS = {
   LEAVE_REQUESTS: 'smart_attendance_leave_requests',
   SYSTEM_SETTINGS: 'smart_attendance_system_settings',
   CAMPUS_ROOMS: 'smart_attendance_campus_rooms_v1',
+  DELETED_CAMPUS_ROOM_IDS: 'smart_attendance_deleted_campus_room_ids_v1',
+  DELETED_CAMPUS_ROOM_NAMES: 'smart_attendance_deleted_campus_room_names_v1',
   DATA_CLEANSED_MOCK: 'smart_attendance_cleansed_mock_v3',
 };
 
@@ -1226,6 +1228,21 @@ export const StorageService = {
   purgeExpiredTrash() {
     const trash = this.getTrash();
     const now = Date.now();
+
+    // After 6 months, campus-room trash is permanently deleted. Keep the
+    // room's deletion marker so it cannot be recreated.
+    trash.forEach((item) => {
+      if (
+        item.type === 'campus_room' &&
+        new Date(item.expiresAt).getTime() <= now
+      ) {
+        const room = item.data as CampusRoom;
+        if (room?.id) {
+          this.markCampusRoomDeleted(room.id, room.name);
+        }
+      }
+    });
+
     const validTrash = trash.filter((t) => new Date(t.expiresAt).getTime() > now);
     if (validTrash.length !== trash.length) {
       this.saveTrash(validTrash);
@@ -1305,6 +1322,9 @@ export const StorageService = {
           message: 'Không thể khôi phục: Phòng học này hiện đã tồn tại trên hệ thống!',
         };
       }
+
+      // Restoration explicitly removes the deletion markers.
+      this.unmarkCampusRoomDeleted(room.id, room.name);
       this.addCampusRoom(room);
     }
 
@@ -1317,6 +1337,14 @@ export const StorageService = {
   deletePermanentlyFromTrash(trashId: string) {
     const trash = this.getTrash();
     const item = trash.find((t) => t.id === trashId);
+    if (item && item.type === 'campus_room') {
+      const room = item.data as CampusRoom;
+      if (room?.id) {
+        // Permanent deletion keeps the marker forever.
+        this.markCampusRoomDeleted(room.id, room.name);
+      }
+    }
+
     if (item && item.type === 'class') {
       const clsId = (item.data as any)?.id;
       const clsName = item.title;
@@ -1332,17 +1360,34 @@ export const StorageService = {
 
   clearAllTrash(filterType?: TrashItemType, currentUserId?: string, userRole?: Role) {
     let trash = this.getTrash();
+
+    const itemsToDelete = filterType
+      ? trash.filter((t) => t.type === filterType)
+      : userRole === 'student' && currentUserId
+      ? trash.filter((t) => t.type === 'student_enrollment' && t.deletedByUserId === currentUserId)
+      : userRole === 'lecturer'
+      ? trash.filter((t) => t.type !== 'student' && t.type !== 'class')
+      : trash;
+
+    itemsToDelete.forEach((item) => {
+      if (item.type === 'campus_room') {
+        const room = item.data as CampusRoom;
+        if (room?.id) {
+          this.markCampusRoomDeleted(room.id, room.name);
+        }
+      }
+    });
+
     if (filterType) {
       trash = trash.filter((t) => t.type !== filterType);
     } else if (userRole === 'student' && currentUserId) {
       trash = trash.filter((t) => !(t.type === 'student_enrollment' && t.deletedByUserId === currentUserId));
     } else if (userRole === 'lecturer') {
       trash = trash.filter((t) => t.type !== 'student' && t.type !== 'class');
-    } else if (userRole === 'admin') {
-      trash = [];
     } else {
       trash = [];
     }
+
     this.saveTrash(trash);
   },
 
@@ -1679,25 +1724,93 @@ export const StorageService = {
   getCampusRooms(): CampusRoom[] {
     const str = localStorage.getItem(STORAGE_KEYS.CAMPUS_ROOMS);
     let rooms: CampusRoom[] = str ? JSON.parse(str) : [];
-    
-    // Ensure all default rooms exist
-    if (!rooms || rooms.length === 0) {
-      rooms = [...DEFAULT_CAMPUS_ROOMS];
+
+    // Persisted deletion markers prevent the default-room synchronizer and
+    // class-location synchronizer from recreating deleted rooms.
+    let deletedRoomIds: string[] = [];
+    let deletedRoomNames: string[] = [];
+    try {
+      const idsStr = localStorage.getItem(STORAGE_KEYS.DELETED_CAMPUS_ROOM_IDS);
+      const namesStr = localStorage.getItem(STORAGE_KEYS.DELETED_CAMPUS_ROOM_NAMES);
+      deletedRoomIds = idsStr ? JSON.parse(idsStr) : [];
+      deletedRoomNames = namesStr ? JSON.parse(namesStr) : [];
+    } catch {
+      deletedRoomIds = [];
+      deletedRoomNames = [];
+    }
+
+    const deletedRoomIdSet = new Set(deletedRoomIds);
+    const deletedRoomNameSet = new Set(
+      deletedRoomNames.map((name) => String(name).trim().toLowerCase())
+    );
+
+    // Migrate existing campus-room trash records into deletion markers. This
+    // also fixes rooms deleted before this protection was introduced.
+    let migrationChanged = false;
+    this.getTrash()
+      .filter((item) => item.type === 'campus_room')
+      .forEach((item) => {
+        const room = item.data as CampusRoom;
+        if (room?.id && !deletedRoomIdSet.has(room.id)) {
+          deletedRoomIdSet.add(room.id);
+          migrationChanged = true;
+        }
+        if (room?.name) {
+          const cleanName = room.name.trim().toLowerCase();
+          if (!deletedRoomNameSet.has(cleanName)) {
+            deletedRoomNameSet.add(cleanName);
+            migrationChanged = true;
+          }
+        }
+      });
+
+    if (migrationChanged) {
+      localStorage.setItem(
+        STORAGE_KEYS.DELETED_CAMPUS_ROOM_IDS,
+        JSON.stringify(Array.from(deletedRoomIdSet))
+      );
+      localStorage.setItem(
+        STORAGE_KEYS.DELETED_CAMPUS_ROOM_NAMES,
+        JSON.stringify(Array.from(deletedRoomNameSet))
+      );
+    }
+
+    if (!str) {
+      rooms = DEFAULT_CAMPUS_ROOMS
+        .filter(
+          (room) =>
+            !deletedRoomIdSet.has(room.id) &&
+            !deletedRoomNameSet.has(room.name.trim().toLowerCase())
+        )
+        .map((room) => ({ ...room }));
       this.saveCampusRooms(rooms);
     } else {
-      // Check if any default rooms are missing
       let modified = false;
+
+      // Add missing defaults only when they were not intentionally deleted.
       DEFAULT_CAMPUS_ROOMS.forEach((dRoom) => {
-        const found = rooms.find((r) => r.name.trim().toLowerCase() === dRoom.name.trim().toLowerCase());
+        if (
+          deletedRoomIdSet.has(dRoom.id) ||
+          deletedRoomNameSet.has(dRoom.name.trim().toLowerCase())
+        ) {
+          return;
+        }
+
+        const found = rooms.find(
+          (r) =>
+            r.id === dRoom.id ||
+            r.name.trim().toLowerCase() === dRoom.name.trim().toLowerCase()
+        );
+
         if (!found) {
-          rooms.push(dRoom);
+          rooms.push({ ...dRoom });
           modified = true;
         } else if (!found.campus && dRoom.campus) {
           found.campus = dRoom.campus;
           modified = true;
         }
       });
-      // Ensure all rooms have campus field
+
       rooms.forEach((r) => {
         if (!r.campus) {
           if (r.name.includes('Cơ sở 2') || r.building.includes('Cơ sở 2')) {
@@ -1710,23 +1823,43 @@ export const StorageService = {
           modified = true;
         }
       });
+
       if (modified) {
         this.saveCampusRooms(rooms);
       }
     }
 
-    // Also include any custom room from existing classes if not in the list
+    // Never expose intentionally deleted rooms.
+    rooms = rooms.filter(
+      (room) =>
+        !deletedRoomIdSet.has(room.id) &&
+        !deletedRoomNameSet.has(room.name.trim().toLowerCase())
+    );
+
+    // Include rooms referenced by active classes only when the room itself
+    // has not been intentionally deleted.
     const classes = this.getClasses();
     let hasNewFromClasses = false;
     classes.forEach((cls) => {
-      if (cls.locationName && !rooms.some((r) => r.name.trim().toLowerCase() === cls.locationName.trim().toLowerCase())) {
+      const cleanLocationName = (cls.locationName || '').trim().toLowerCase();
+      if (
+        cleanLocationName &&
+        !deletedRoomNameSet.has(cleanLocationName) &&
+        !rooms.some((r) => r.name.trim().toLowerCase() === cleanLocationName)
+      ) {
         rooms.push({
           id: `room_custom_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
           name: cls.locationName,
           campus: cls.locationName.includes('Cơ sở 2') ? 'Cơ sở 2' : 'Cơ sở 1',
-          building: cls.locationName.includes('Giảng đường A') ? 'Giảng đường A' : cls.locationName.includes('Tòa nhà B') ? 'Tòa nhà B' : 'Khuôn viên trường',
+          building: cls.locationName.includes('Giảng đường A')
+            ? 'Giảng đường A'
+            : cls.locationName.includes('Tòa nhà B')
+            ? 'Tòa nhà B'
+            : 'Khuôn viên trường',
           capacity: 60,
-          type: cls.locationName.toLowerCase().includes('lab') ? 'Thực hành / Lab máy tính' : 'Lý thuyết',
+          type: cls.locationName.toLowerCase().includes('lab')
+            ? 'Thực hành / Lab máy tính'
+            : 'Lý thuyết',
           latitude: cls.latitude || 21.038234,
           longitude: cls.longitude || 105.782812,
           radiusMeters: cls.radiusMeters || 50,
@@ -1741,9 +1874,68 @@ export const StorageService = {
 
     return rooms;
   },
-
   saveCampusRooms(rooms: CampusRoom[]) {
     localStorage.setItem(STORAGE_KEYS.CAMPUS_ROOMS, JSON.stringify(rooms));
+  },
+
+  getDeletedCampusRoomIds(): string[] {
+    try {
+      const str = localStorage.getItem(STORAGE_KEYS.DELETED_CAMPUS_ROOM_IDS);
+      return str ? JSON.parse(str) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  markCampusRoomDeleted(id: string, name?: string) {
+    const ids = new Set(this.getDeletedCampusRoomIds());
+    ids.add(id);
+    localStorage.setItem(
+      STORAGE_KEYS.DELETED_CAMPUS_ROOM_IDS,
+      JSON.stringify(Array.from(ids))
+    );
+
+    if (name) {
+      let names: string[] = [];
+      try {
+        const str = localStorage.getItem(STORAGE_KEYS.DELETED_CAMPUS_ROOM_NAMES);
+        names = str ? JSON.parse(str) : [];
+      } catch {
+        names = [];
+      }
+      const cleanName = name.trim().toLowerCase();
+      if (cleanName && !names.includes(cleanName)) {
+        names.push(cleanName);
+        localStorage.setItem(
+          STORAGE_KEYS.DELETED_CAMPUS_ROOM_NAMES,
+          JSON.stringify(names)
+        );
+      }
+    }
+  },
+
+  unmarkCampusRoomDeleted(id: string, name?: string) {
+    const ids = this.getDeletedCampusRoomIds().filter((roomId) => roomId !== id);
+    localStorage.setItem(
+      STORAGE_KEYS.DELETED_CAMPUS_ROOM_IDS,
+      JSON.stringify(ids)
+    );
+
+    if (name) {
+      let names: string[] = [];
+      try {
+        const str = localStorage.getItem(STORAGE_KEYS.DELETED_CAMPUS_ROOM_NAMES);
+        names = str ? JSON.parse(str) : [];
+      } catch {
+        names = [];
+      }
+      const cleanName = name.trim().toLowerCase();
+      names = names.filter((roomName) => roomName !== cleanName);
+      localStorage.setItem(
+        STORAGE_KEYS.DELETED_CAMPUS_ROOM_NAMES,
+        JSON.stringify(names)
+      );
+    }
   },
 
   // Check if a room is occupied in dayOfWeek during startTime - endTime
@@ -1820,12 +2012,12 @@ export const StorageService = {
 
   // Delete a campus room with soft-delete into Trash (stored for 6 months)
   deleteCampusRoom(id: string, deletedByRole: Role = 'admin'): { success: boolean; trashItem?: TrashItem; previousRoom?: CampusRoom } {
-    let rooms = this.getCampusRooms();
+    const rooms = this.getCampusRooms();
     const targetRoom = rooms.find((r) => r.id === id);
     if (!targetRoom) return { success: false };
 
-    rooms = rooms.filter((r) => r.id !== id);
-    this.saveCampusRooms(rooms);
+    this.markCampusRoomDeleted(id, targetRoom.name);
+    this.saveCampusRooms(rooms.filter((r) => r.id !== id));
 
     const trashItem = this.moveToTrash({
       id: `trash_room_${targetRoom.id}_${Date.now()}`,
@@ -1848,6 +2040,7 @@ export const StorageService = {
     const targets = rooms.filter((r) => idSet.has(r.id));
     if (targets.length === 0) return { successCount: 0, trashItems: [], previousRooms: [] };
 
+    targets.forEach((room) => this.markCampusRoomDeleted(room.id, room.name));
     rooms = rooms.filter((r) => !idSet.has(r.id));
     this.saveCampusRooms(rooms);
 
