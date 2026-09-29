@@ -219,7 +219,8 @@ export const ScheduleManagement: React.FC<ScheduleManagementProps> = ({
     // Choose first available room if present
     const initAvailRooms = StorageService.getAvailableRoomsForSchedule(2, '08:00', '11:30');
     const defaultRoom = initAvailRooms[0] || campusRooms[0];
-    setLocationName(defaultRoom ? defaultRoom.name : 'Phòng Lab 302 - Giảng đường A2 (Cơ sở 1)');
+    setRoomId(defaultRoom?.id || '');
+    setLocationName(defaultRoom ? defaultRoom.name : '');
     setLatitude(defaultRoom ? defaultRoom.latitude : 21.038234);
     setLongitude(defaultRoom ? defaultRoom.longitude : 105.782812);
     setRadiusMeters(defaultRoom ? defaultRoom.radiusMeters : 50);
@@ -326,6 +327,11 @@ export const ScheduleManagement: React.FC<ScheduleManagementProps> = ({
 
     if (!lecturerId) {
       alert('Vui lòng gán một giảng viên phụ trách');
+      return;
+    }
+
+    if (!roomId) {
+      alert('Vui lòng chọn một phòng học trống!');
       return;
     }
 
@@ -931,7 +937,7 @@ export const ScheduleManagement: React.FC<ScheduleManagementProps> = ({
                   </div>
 
                   <select
-                    value={locationName}
+                    value={roomId}
                     onChange={(e) => {
                       const selected = e.target.value;
                       const roomObj = campusRooms.find((r) => r.id === selected);
@@ -950,8 +956,8 @@ export const ScheduleManagement: React.FC<ScheduleManagementProps> = ({
                       <option value="">-- Không còn phòng nào trống (Phòng trùng lịch đã bị ẩn) --</option>
                     ) : (
                       <>
-                        {!availableRooms.some((r) => r.name === locationName) && locationName && (
-                          <option value={locationName}>{locationName} (Phòng hiện tại)</option>
+                        {editingClass && roomId && !availableRooms.some((r) => r.id === roomId) && locationName && (
+                          <option value={roomId}>{locationName} (Phòng hiện tại)</option>
                         )}
                         {availableRooms.map((r) => (
                           <option key={r.id} value={r.id}>
