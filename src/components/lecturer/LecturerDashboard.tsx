@@ -59,7 +59,8 @@ export const LecturerDashboard: React.FC<LecturerDashboardProps> = ({
   const [credits, setCredits] = useState<number>(3);
   const [courseYear, setCourseYear] = useState('10');
   const [className, setClassName] = useState('A1');
-  const [locationName, setLocationName] = useState('Phòng Lab 302 - Giảng đường A2');
+  const [locationName, setLocationName] = useState('');
+  const [roomId, setRoomId] = useState('');
   const [latitude, setLatitude] = useState(21.038234);
   const [longitude, setLongitude] = useState(105.782812);
   const [radiusMeters, setRadiusMeters] = useState(50);
@@ -116,7 +117,11 @@ export const LecturerDashboard: React.FC<LecturerDashboardProps> = ({
   });
 
   // Filter classes taught by this lecturer
-  const myClasses = classes.filter((c) => c.lecturerId === currentUser.id);
+  const myClasses = classes.filter((c) => {
+    if (c.lecturerId !== currentUser.id) return false;
+    const room = StorageService.getCampusRooms().find((r) => r.id === c.roomId);
+    return !!room;
+  });
 
   // All campus rooms
   const campusRooms = React.useMemo(() => StorageService.getCampusRooms(), [classes]);
@@ -160,11 +165,12 @@ export const LecturerDashboard: React.FC<LecturerDashboardProps> = ({
     setCourseYear('10');
     setClassName('A1');
     const initRooms = StorageService.getAvailableRoomsForSchedule(2, '08:00', '11:30');
-    const firstRoom = initRooms[0] || campusRooms[0];
-    setLocationName(firstRoom ? firstRoom.name : 'Phòng Lab 302 - Giảng đường A2 (Cơ sở 1)');
-    setLatitude(firstRoom ? firstRoom.latitude : 21.038234);
-    setLongitude(firstRoom ? firstRoom.longitude : 105.782812);
-    setRadiusMeters(firstRoom ? firstRoom.radiusMeters : 50);
+    const firstRoom = initRooms[0];
+    setRoomId(firstRoom?.id || '');
+    setLocationName(firstRoom?.name || '');
+    setLatitude(firstRoom?.latitude || 0);
+    setLongitude(firstRoom?.longitude || 0);
+    setRadiusMeters(firstRoom?.radiusMeters || 0);
     setDayOfWeek(2);
     setStartTime('08:00');
     setEndTime('11:30');
@@ -184,8 +190,10 @@ export const LecturerDashboard: React.FC<LecturerDashboardProps> = ({
     setCredits(cls.credits || 3);
     setCourseYear(cls.courseYear);
     setClassName(cls.className);
-    setLocationName(cls.locationName);
-    setLatitude(cls.latitude);
+    const linkedRoom = campusRooms.find((r) => r.id === cls.roomId);
+    setRoomId(linkedRoom?.id || '');
+    setLocationName(linkedRoom?.name || '');
+    setLatitude(linkedRoom?.latitude || 0);
     setLongitude(cls.longitude);
     setRadiusMeters(cls.radiusMeters);
     setDayOfWeek(cls.dayOfWeek);
@@ -243,6 +251,12 @@ export const LecturerDashboard: React.FC<LecturerDashboardProps> = ({
       return;
     }
 
+    const selectedRoom = campusRooms.find((r) => r.id === roomId);
+    if (!selectedRoom) {
+      alert('Vui lòng chọn một phòng học đang tồn tại và còn trống!');
+      return;
+    }
+
     // 1. Conflict check for lecturer
     const lecturerConflict = StorageService.checkLecturerConflict(
       currentUser.id,
@@ -279,7 +293,8 @@ export const LecturerDashboard: React.FC<LecturerDashboardProps> = ({
       Number(dayOfWeek),
       startTime,
       endTime,
-      editingClass?.id
+      editingClass?.id,
+      roomId
     );
     if (roomConflict.hasConflict) {
       alert(`⚠️ XUNG ĐỘT PHÒNG HỌC:\n\n${roomConflict.reason || `Phòng học "${locationName}" đã có lớp đăng ký trong khung giờ này!`}`);
@@ -296,8 +311,9 @@ export const LecturerDashboard: React.FC<LecturerDashboardProps> = ({
           periodsPerSession: Number(periodsPerSession) || 4,
           courseYear,
           className,
-          locationName,
-          latitude: Number(latitude),
+          locationName: selectedRoom.name,
+          roomId: selectedRoom.id,
+          latitude: Number(selectedRoom.latitude),
           longitude: Number(longitude),
           radiusMeters: Number(radiusMeters),
           dayOfWeek: Number(dayOfWeek),
@@ -323,8 +339,9 @@ export const LecturerDashboard: React.FC<LecturerDashboardProps> = ({
           courseYear,
           className,
           lecturerId: currentUser.id,
-          locationName,
-          latitude: Number(latitude),
+          locationName: selectedRoom.name,
+          roomId: selectedRoom.id,
+          latitude: Number(selectedRoom.latitude),
           longitude: Number(longitude),
           radiusMeters: Number(radiusMeters),
           useLecturerLocation: true,
@@ -794,34 +811,28 @@ export const LecturerDashboard: React.FC<LecturerDashboardProps> = ({
                   </div>
 
                   <select
-                    value={locationName}
+                    value={roomId}
                     onChange={(e) => {
                       const selected = e.target.value;
-                      setLocationName(selected);
-                      const roomObj = campusRooms.find((r) => r.name === selected);
-                      if (roomObj) {
-                        setLatitude(roomObj.latitude);
-                        setLongitude(roomObj.longitude);
-                        setRadiusMeters(roomObj.radiusMeters);
-                      }
+                      const roomObj = campusRooms.find((r) => r.id === selected);
+                      setRoomId(selected);
+                      setLocationName(roomObj?.name || '');
+                      setLatitude(roomObj?.latitude || 0);
+                      setLongitude(roomObj?.longitude || 0);
+                      setRadiusMeters(roomObj?.radiusMeters || 0);
                     }}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-sky-500 focus:outline-hidden font-medium"
                     required
                   >
-                    {availableRooms.length === 0 ? (
-                      <option value="">-- Không còn phòng trống trong khung giờ này (Đã ẩn phòng trùng) --</option>
-                    ) : (
-                      <>
-                        {!availableRooms.some((r) => r.name === locationName) && locationName && (
-                          <option value={locationName}>{locationName} (Phòng hiện tại)</option>
-                        )}
-                        {availableRooms.map((r) => (
-                          <option key={r.id} value={r.name}>
-                            {r.name} • Sức chứa: {r.capacity} SV ({r.building})
-                          </option>
-                        ))}
-                      </>
+                    <option value="">-- Chọn phòng trống --</option>
+                    {editingClass && roomId && !availableRooms.some((r) => r.id === roomId) && (
+                      <option value={roomId}>{locationName} (Phòng hiện tại)</option>
                     )}
+                    {availableRooms.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name} • {r.campus || 'Cơ sở 1'} • {r.building} • Sức chứa: {r.capacity} SV
+                      </option>
+                    ))}
                   </select>
                   <p className="text-[10px] text-slate-500 mt-1">
                     Chỉ hiển thị các phòng còn trống. Phòng đã được Admin xếp lịch hoặc GV khác đăng ký sẽ bị ẩn.
